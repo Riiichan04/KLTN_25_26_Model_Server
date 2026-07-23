@@ -49,11 +49,13 @@ app = FastAPI(lifespan=lifespan, title="ABSA Model API (KLTN)")
 @app.post("/predict", response_model=PredictResponse)
 async def predict(request: PredictRequest):
     model = ml_models.get("model")
-    if not model:
-        raise HTTPException(status_code=503, detail="Mô hình chưa sẵn sàng.")
+    annotator = ml_models.get("annotator")
+
+    if not model or not annotator:
+        raise HTTPException(status_code=503, detail="Server đang khởi động tài nguyên, vui lòng thử lại sau.")
 
     try:
-        extracted_aspects = process_single_prediction(request.text, model)
+        extracted_aspects = process_single_prediction(request.text, model, annotator)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi Inference Model: {e}")
 
@@ -69,15 +71,17 @@ async def predict(request: PredictRequest):
 @app.post("/batch-predict", response_model=BatchPredictResponse)
 async def predict_batch(request: BatchPredictRequest):
     model = ml_models.get("model")
-    if not model:
-        raise HTTPException(status_code=503, detail="Mô hình chưa sẵn sàng.")
+    annotator = ml_models.get("annotator")
+
+    if not model or not annotator:
+        raise HTTPException(status_code=503, detail="Server đang khởi động tài nguyên, vui lòng thử lại sau.")
 
     all_batch_results = []
     success_count = 0
 
     for item in request.reviews:
         try:
-            extracted_aspects = process_single_prediction(item.text, model)
+            extracted_aspects = process_single_prediction(item.text, model, annotator)
             msg = "Thành công" if extracted_aspects else "Không tìm thấy khía cạnh"
 
             all_batch_results.append(PredictResponse(

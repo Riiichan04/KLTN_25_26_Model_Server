@@ -1,7 +1,8 @@
+import re
+import emoji
 import torch
 import torch.nn.functional as F
 import torch.distributions as dist
-from pyvi import ViTokenizer
 
 from config import aspect_columns, sentiment_labels
 from data_processor import prepare_data_for_row, extract_opinion_phrase_gat
@@ -9,19 +10,49 @@ from schemas import AspectResult
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def process_single_prediction(text: str, model) -> list[AspectResult]:
+def clean_text(text: str) -> str:
+    """
+    Làm sạch văn bản, chuyển emoji thành chữ và loại bỏ ký tự rác.
+    """
+    text = text.lower()
+    text = emoji.demojize(text, delimiters=(" ", " "))
+    text = text.replace("_", " ")
+    text = re.sub(r'[^\w\s.,!?]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def process_single_prediction(text: str, model, annotator) -> list[AspectResult]:
     """
     Xử lý text qua model ABSA và trả về danh sách các AspectResult.
     """
-    # 1. Tiền xử lý dữ liệu
-    segmented_text = ViTokenizer.tokenize(text)
-    words_count = len(segmented_text.split())
-    dummy_heads = [-1] * words_count
+    # 1. Tiền xử lý dữ liệu (Áp dụng logic Global Head Offset)
+    cleaned_text = clean_text(text)
+    output = annotator.annotate(cleaned_text)
+
+    words = []
+    heads = []
+    word_offset = 0
+
+    for sentence in output['sentences']:
+        for word_info in sentence:
+            words.append(word_info['form'])
+
+            head_val = word_info['head']
+            if head_val == 0:
+                heads.append(-1)
+            else:
+                global_head_idx = (head_val - 1) + word_offset
+                heads.append(global_head_idx)
+
+        word_offset += len(sentence)
+
+    text_segmented = " ".join(words)
 
     row_simulated = {
-        'Review': segmented_text,
-        'text_segmented': segmented_text,
-        'heads': dummy_heads
+        'Review': text_segmented,
+        'text_segmented': text_segmented,
+        'heads': heads
     }
 
     input_ids, attention_mask, e_syn, e_sem, e_asp = prepare_data_for_row(row_simulated)
